@@ -257,9 +257,10 @@ try {
         $security.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($system, 'FullControl', $inherit, $none, 'Allow')))
         $security.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($vaultSid, 'Modify', $inherit, $none, 'Allow')))
         # Created with this security descriptor in one call: there is no moment with inherited access.
+        # No emptiness check afterwards: Administrators deliberately have no ACE on this folder, so even this
+        # elevated session cannot list it. Nothing else can have written into it either.
         if ($PSVersionTable.PSEdition -eq 'Desktop') { [void][IO.Directory]::CreateDirectory($dataDir, $security) }
         else { [IO.FileSystemAclExtensions]::Create((New-Object IO.DirectoryInfo($dataDir)), $security) }
-        if (@(Get-ChildItem -LiteralPath $dataDir -Force).Count -ne 0) { throw "$dataDir is not empty right after creation; refusing." }
     }
     if (-not (Test-DataAcl)) {
         throw "The ACL or owner of $dataDir is not exactly LeafVault (Modify) + SYSTEM (Full), owner Administrators. Refusing to start the service; inspect the folder."
