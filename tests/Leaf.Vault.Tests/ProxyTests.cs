@@ -418,6 +418,48 @@ public sealed class ProxyTests : IAsyncLifetime
         Assert.Equal("FAKE", Encoding.UTF8.GetString(scrubber.Process("FAKE"u8)) + Encoding.UTF8.GetString(scrubber.Flush()));
     }
 
+    [Theory]
+    [InlineData("ab+cd/ef12gh", "ab%2Bcd/ef12gh")]                       // Python quote(): '/' left raw
+    [InlineData("ab+cd/ef12gh", "ab%2bcd%2fef12gh")]                     // lower-case hex
+    [InlineData("ab+cd/ef12gh", @"ab+cd\/ef12gh")]                  // JSON: lower-case \u escape, \/
+    [InlineData("ab cd/ef12gh", "ab+cd%2Fef12gh")]                       // form encoding
+    [InlineData(@"ab""cd\ef12gh", @"ab\""cd\\ef12gh")]                   // JSON short escapes
+    [InlineData("ab+cd/ef12gh", "%61%62%2B%63%64%2F%65%66%31%32%67%68")] // everything encoded
+    public void Any_mix_of_encodings_is_redacted(string secret, string reflected)
+    {
+        var scrubber = new SecretScrubber(secret);
+        Assert.Equal("x [redacted] y", scrubber.ScrubText("x " + reflected + " y"));
+        var streamed = Encoding.UTF8.GetString(scrubber.Process(Encoding.UTF8.GetBytes("x " + reflected[..5])))
+            + Encoding.UTF8.GetString(scrubber.Process(Encoding.UTF8.GetBytes(reflected[5..] + " y")))
+            + Encoding.UTF8.GetString(scrubber.Flush());
+        Assert.Equal("x [redacted] y", streamed);
+    }
+
+    [Fact]
+    public void Partial_echoes_of_eight_or_more_bytes_are_redacted()
+    {
+        const string secret = "Zq7Xw9Lm3Np5Rt8Vy2Bc";
+        var scrubber = new SecretScrubber(secret);
+        Assert.Equal("url=/v1?key=[redacted]", scrubber.ScrubText("url=/v1?key=" + secret[..8])); // truncated echo
+        Assert.Equal("..[redacted]..", scrubber.ScrubText(".." + secret[5..14] + ".."));          // a slice from the middle
+        Assert.Equal("key=" + secret[..7], scrubber.ScrubText("key=" + secret[..7]));             // 7 bytes pass
+        Assert.Equal("plain text, no secret here", scrubber.ScrubText("plain text, no secret here"));
+    }
+
+    [Fact]
+    public async Task Range_requests_are_not_forwarded()
+    {
+        await using var upstream = await FakeUpstream.StartAsync(Ok);
+        await Put("elevenlabs", Fake.Header(upstream.Origin));
+        using var request = new HttpRequestMessage(HttpMethod.Get, _vault.Proxy("elevenlabs", "v1/x"));
+        request.Headers.Range = new RangeHeaderValue(0, 4);
+        request.Headers.TryAddWithoutValidation("If-Range", "\"etag\"");
+        using var response = await _http.SendAsync(request);
+        var got = Assert.Single(upstream.Requests);
+        Assert.False(got.Headers.ContainsKey("range"));
+        Assert.False(got.Headers.ContainsKey("if-range"));
+    }
+
     private static async Task<string> RoundTrip(ClientWebSocket ws, string text)
     {
         await ws.SendAsync(Encoding.UTF8.GetBytes(text), WebSocketMessageType.Text, true, default);

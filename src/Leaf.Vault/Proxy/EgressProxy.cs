@@ -44,10 +44,14 @@ internal sealed class EgressProxy(SecretStore store, HttpMessageInvoker http, IL
         "te", "trailer", "transfer-encoding", "upgrade",
     };
 
-    /// <summary>Request headers never forwarded, besides hop-by-hop and the injected header's name.</summary>
+    /// <summary>
+    /// Request headers never forwarded, besides hop-by-hop and the injected header's name.
+    /// Range/If-Range are dropped so a reflected secret cannot be fetched in slices shorter
+    /// than the scrubber's minimum run.
+    /// </summary>
     private static readonly HashSet<string> NotForwarded = new(StringComparer.OrdinalIgnoreCase)
     {
-        "host", "expect", "accept-encoding", ProxyHeaders.Destination,
+        "host", "expect", "accept-encoding", "range", "if-range", ProxyHeaders.Destination,
     };
 
     public async Task HandleAsync(HttpContext ctx)
