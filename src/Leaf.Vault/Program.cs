@@ -1,6 +1,11 @@
 using Leaf.Vault;
 using Leaf.Vault.Client;
+using Leaf.Vault.Setup;
 using Microsoft.Extensions.Logging.EventLog;
+
+// The released exe is also its own installer: `setup install` runs elevated from a staged,
+// administrators-only copy (see Setup/Installer.cs). The service itself runs without arguments.
+if (SetupArguments.IsSetup(args)) return await SetupCommand.RunAsync(args);
 
 // leaf-vault.json beside the executable (Program Files, administrators only) is the whole configuration.
 var config = new ConfigurationBuilder()
@@ -16,3 +21,4 @@ var app = VaultApp.Build(options, builder =>
     builder.Logging.AddFilter<EventLogLoggerProvider>(level => level >= LogLevel.Warning);
 });
 await app.RunAsync();
+return 0;
