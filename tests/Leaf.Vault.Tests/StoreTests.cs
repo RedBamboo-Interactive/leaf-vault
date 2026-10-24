@@ -260,3 +260,63 @@ public sealed class OptionsTests
     public void A_missing_owner_refuses_to_start()
         => Assert.Throws<InvalidOperationException>(new VaultOptions().Validate);
 }
+
+public sealed class DataDirectoryGuardTests : IDisposable
+{
+    private readonly string _dir = Fake.TempDirectory();
+    // The guard runs with "self" = the vault account and "owner" = the interactive user; in tests
+    // the process user plays the vault, and an unrelated account SID plays the owner.
+    private static readonly System.Security.Principal.SecurityIdentifier Owner = new("S-1-5-21-1000000000-2000000000-3000000000-1001");
+
+    public void Dispose() => Directory.Delete(_dir, recursive: true);
+
+    private void Lock()
+    {
+        var security = new System.Security.AccessControl.DirectorySecurity();
+        security.SetAccessRuleProtection(true, false);
+        foreach (var sid in new[] { Fake.Me, new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.LocalSystemSid, null) })
+            security.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(sid,
+                System.Security.AccessControl.FileSystemRights.FullControl,
+                System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit,
+                System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
+        new DirectoryInfo(_dir).SetAccessControl(security);
+    }
+
+    [Fact]
+    public void An_inherited_temp_folder_is_refused()
+        => Assert.Contains("refusing to start", Assert.Throws<InvalidOperationException>(() => DataDirectoryGuard.Check(_dir, Fake.Me, Owner)).Message);
+
+    [Fact]
+    public void A_locked_folder_passes_and_its_files_are_checked_too()
+    {
+        Lock();
+        File.WriteAllText(Path.Combine(_dir, "secrets.json"), "{}");
+        DataDirectoryGuard.Check(_dir, Fake.Me, Owner);
+
+        // A file inside that grants someone else access stops the vault.
+        var file = new FileInfo(Path.Combine(_dir, "secrets.json"));
+        var security = file.GetAccessControl();
+        security.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+            new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinUsersSid, null),
+            System.Security.AccessControl.FileSystemRights.Read, System.Security.AccessControl.AccessControlType.Allow));
+        file.SetAccessControl(security);
+        Assert.Throws<InvalidOperationException>(() => DataDirectoryGuard.Check(_dir, Fake.Me, Owner));
+    }
+
+    [Fact]
+    public void A_folder_owned_by_the_interactive_user_is_refused()
+    {
+        Lock();
+        // Here the process user is both "self" and the configured owner: owner rights would let it re-open the DACL.
+        Assert.Throws<InvalidOperationException>(() => DataDirectoryGuard.Check(_dir, Fake.Me, Fake.Me));
+    }
+
+    [Fact]
+    public void The_vault_refuses_a_missing_or_open_data_directory()
+    {
+        var options = new VaultOptions { OwnerSid = Owner.Value, DataDirectory = Path.Combine(_dir, "missing"), ProxyPort = 0, PipeName = "unused-" + Guid.NewGuid().ToString("N") };
+        Assert.Contains("does not exist", Assert.Throws<InvalidOperationException>(() => VaultApp.Build(options)).Message);
+        options.DataDirectory = _dir;
+        Assert.Contains("refusing to start", Assert.Throws<InvalidOperationException>(() => VaultApp.Build(options)).Message);
+    }
+}

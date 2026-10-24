@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Principal;
 using Leaf.Vault.Client;
 using Leaf.Vault.Pipe;
 using Leaf.Vault.Proxy;
@@ -30,6 +31,13 @@ public static class VaultApp
         });
         configure?.Invoke(builder);
 
+        if (options.RequireLockedDataDirectory)
+        {
+            // The installer creates the folder locked; the vault never creates it with inherited permissions.
+            if (!Directory.Exists(options.DataDirectory))
+                throw new InvalidOperationException($"refusing to start: {options.DataDirectory} does not exist (run scripts/install.ps1)");
+            DataDirectoryGuard.Check(options.DataDirectory, WindowsIdentity.GetCurrent().User!, options.Owner());
+        }
         var store = SecretStore.Open(options.DataDirectory);
         var selected = SigningKeySelector.Select(SigningKeySelector.Sources(options.SigningProvider), options.SigningKeyName);
         var signer = selected is { } s

@@ -29,6 +29,12 @@ public sealed class VaultOptions
 
     public int MaxRemoteBadgeSeconds { get; set; } = 3600;
 
+    /// <summary>
+    /// Refuse to start unless the data directory already exists and only this account and SYSTEM
+    /// can reach it. Always on in the service; tests turn it off to use temp folders.
+    /// </summary>
+    public bool RequireLockedDataDirectory { get; set; } = true;
+
     public SecurityIdentifier Owner()
     {
         if (string.IsNullOrWhiteSpace(OwnerSid)) throw new InvalidOperationException("Vault:OwnerSid is not configured");

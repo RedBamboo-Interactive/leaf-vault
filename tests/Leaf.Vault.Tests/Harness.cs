@@ -52,6 +52,7 @@ internal sealed class TestVault : IAsyncDisposable
             SigningKeyName = KeyName,
             MaxLocalBadgeSeconds = 7 * 24 * 3600,
             MaxRemoteBadgeSeconds = 3600,
+            RequireLockedDataDirectory = false,
         };
         App = VaultApp.Build(options, b => b.Logging.AddProvider(Logs));
         // In tests the vault runs as the current user, so that is the expected pipe owner.
