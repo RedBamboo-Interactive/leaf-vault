@@ -64,7 +64,7 @@ function Remove-OwnedTree([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return }
     # Owned by and only reachable to the service account: take it back for Administrators alone
     # (never /reset, which would inherit the parent's ACL and open it to users if deletion then fails).
-    & (Join-Path $windows 'System32	akeown.exe') /F $Path /R /A /D Y | Out-Null
+    & (Join-Path $windows 'System32\takeown.exe') /F $Path /R /A /D Y | Out-Null
     & (Join-Path $windows 'System32\icacls.exe') $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' /T /C /Q | Out-Null
     Remove-Item -LiteralPath $Path -Recurse -Force
     Write-Host "Removed $Path."
