@@ -95,9 +95,15 @@ after:  POST http://127.0.0.1:18810/s/elevenlabs/v1/text-to-speech/…   (no key
   redirects (a 3xx is returned to the caller), no cookies, and default TLS validation. Callers
   cannot pass a CA.
 - **Scrubbing:** if the upstream reflects the injected secret, it is replaced with `[redacted]`
-  in relayed headers, bodies and WebSocket frames. The raw, percent-encoded and JSON-escaped
-  forms are all matched. A reflection the upstream transforms (base64, for example) is not
-  detected; bindings are meant to name trusted provider origins.
+  in relayed headers, bodies and WebSocket frames.
+  - Matching decodes as it scans: each byte of the secret may appear raw, percent-encoded (either
+    hex case, fully or partially), as a JSON `\u00XX` or short escape, or as `+` for a space.
+  - Any run of 8 or more bytes of the secret is redacted, not only the whole value, so a
+    truncated echo cannot be read piece by piece. `Range` and `If-Range` are not forwarded, so a
+    response cannot be fetched in small slices either.
+  - Throughput is about 35 MB/s per stream.
+  - A reflection the upstream transforms (base64, for example) is not detected; bindings are
+    meant to name trusted provider origins.
 - **Local callers only:** the proxy listens on loopback only. The `Host` header must be
   `127.0.0.1` or `localhost` on the vault's port, which defeats DNS rebinding. Browser requests
   (with `Origin` or `Sec-Fetch-Site`) are refused.
@@ -120,35 +126,55 @@ after:  POST http://127.0.0.1:18810/s/elevenlabs/v1/text-to-speech/…   (no key
 
 ## Install and uninstall (owner, elevated)
 
-Prerequisites: the .NET 9 SDK (see `global.json`) and git. Run these from an **elevated**
-PowerShell in a clean checkout of the commit you mean to install. The scripts are part of this
-repository, so review the commit before running them as administrator.
+Prerequisites: the .NET 9 SDK installed machine-wide under `C:\Program Files\dotnet` (see
+`global.json`). Git is not needed. The commit you install must be **pushed** to GitHub, because the
+installer builds GitHub's archive of that commit and never uses the local files.
+
+Start an elevated PowerShell **without your profile**: the profile script belongs to your normal,
+agent-writable session. Then run the script from the checkout:
 
 ```powershell
-cd <checkout>\leaf-vault
-.\scripts\install.ps1                 # owner = you; port 18810
-.\scripts\install.ps1 -OwnerSid S-1-5-21-…   # if you elevate with a different admin account
+pwsh -NoProfile -File <checkout>\scripts\install.ps1                 # HEAD commit, owner = you, port 18810
+pwsh -NoProfile -File <checkout>\scripts\install.ps1 -Commit <sha>    # a specific pushed commit
+pwsh -NoProfile -File <checkout>\scripts\install.ps1 -OwnerSid S-1-5-21-…   # if you elevate as another admin
 ```
 
-What `install.ps1` does:
+Windows PowerShell 5.1 (`powershell -NoProfile -File …`) works too.
 
-1. Refuses to run unelevated, or from a checkout with uncommitted changes.
-2. Publishes with a locked NuGet restore and shows the version, commit, DLL SHA-256 and pipe owner,
-   then asks for confirmation.
-3. Installs to `C:\Program Files\Leaf Vault\`, which keeps its inherited Program Files ACL, and
+`install.ps1` takes nothing executable from the checkout or from your normal session except
+itself, so read its diff before running it. Step by step:
+
+1. Reads the commit as text from `.git/HEAD`, never by running git, or takes it from `-Commit`.
+2. Downloads `github.com/RedBamboo-Interactive/leaf-vault/archive/<commit>.zip` over HTTPS with
+   no proxy, into an administrators-only folder under Program Files.
+3. Builds there with `dotnet` from Program Files. The script first checks that dotnet's folders
+   are writable by administrators only.
+   - The build runs in a whitelisted environment: no user PATH, environment variables, NuGet
+     configuration or cache, or MSBuild user extensions.
+   - The NuGet restore is locked.
+4. Shows the version, commit, DLL SHA-256 and pipe owner, then asks for confirmation.
+5. Installs to `C:\Program Files\Leaf Vault\`, which keeps its inherited Program Files ACL, and
    writes `leaf-vault.json` there.
-4. Creates the `LeafVault` service: virtual account `NT SERVICE\LeafVault`, automatic start,
+6. Creates the `LeafVault` service: virtual account `NT SERVICE\LeafVault`, automatic start,
    restart on failure.
-5. Creates `C:\ProgramData\Leaf Vault\` with inheritance disabled and exactly `LeafVault`
-   (Modify) + `SYSTEM` (Full), owned by Administrators. It verifies that ACL before starting.
-6. Starts the service and prints `/health`.
+7. Creates `C:\ProgramData\Leaf Vault\` **with** its final ACL in one call: inheritance
+   disabled, `LeafVault` (Modify) + `SYSTEM` (Full), owned by Administrators.
+   - On a first install it refuses a folder that already exists.
+   - On an update it refuses a folder whose ACL is not exactly that.
+   - The vault itself re-checks the folder and every file in it at each start, and refuses to
+     run otherwise.
+8. Starts the service and prints `/health`.
 
 Re-running it updates in place and keeps the data.
 
 ```powershell
-.\scripts\uninstall.ps1               # remove the service and program files, keep the data
-.\scripts\uninstall.ps1 -RemoveData   # also delete every secret and the badge key (asks first)
+pwsh -NoProfile -File <checkout>\scripts\uninstall.ps1               # remove the service and program files, keep the data
+pwsh -NoProfile -File <checkout>\scripts\uninstall.ps1 -RemoveData   # also delete every secret and the badge key (asks first)
 ```
+
+With `-RemoveData` the keys go first: the service profile, which holds the DPAPI master keys and
+the badge key. Folders are re-owned for Administrators only before they are deleted, never reset
+to inherited access.
 
 ## Development
 

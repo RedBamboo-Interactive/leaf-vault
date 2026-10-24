@@ -23,11 +23,14 @@ if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Pri
     throw 'Leaf Vault must be uninstalled from an elevated PowerShell (Run as administrator).'
 }
 
+# Known folders from the system, not from (user-overridable) environment variables.
+$windows = [Environment]::GetFolderPath('Windows')
 $serviceName = 'LeafVault'
-$installDir = Join-Path $env:ProgramFiles 'Leaf Vault'
-$dataDir = Join-Path $env:ProgramData 'Leaf Vault'
-$profileDir = Join-Path $env:SystemRoot "ServiceProfiles\$serviceName"
-$serviceSid = (((sc.exe showsid $serviceName) -match 'SERVICE SID:' | Select-Object -First 1) -replace '.*SERVICE SID:\s*', '').Trim()
+$installDir = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Leaf Vault'
+$dataDir = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'Leaf Vault'
+$profileDir = Join-Path $windows "ServiceProfiles\$serviceName"
+$sc = Join-Path $windows 'System32\sc.exe'
+$serviceSid = (((& $sc showsid $serviceName) -match 'SERVICE SID:' | Select-Object -First 1) -replace '.*SERVICE SID:\s*', '').Trim()
 
 if ($RemoveData -and -not $Yes) {
     $answer = Read-Host "Delete every secret in $dataDir and the vault's signing key? This cannot be undone. [y/N]"
@@ -40,7 +43,7 @@ if ($service) {
         Stop-Service -Name $serviceName -Force
         $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
     }
-    sc.exe delete $serviceName | Out-Null
+    & $sc delete $serviceName | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "sc delete $serviceName failed (exit $LASTEXITCODE)." }
     Write-Host "Removed service $serviceName."
 }
@@ -59,18 +62,21 @@ if (-not $RemoveData) {
 
 function Remove-OwnedTree([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return }
-    # The tree is owned by and only readable to the service account: take it back first.
-    takeown /F $Path /R /A /D Y | Out-Null
-    icacls $Path /reset /T /C /Q | Out-Null
+    # Owned by and only reachable to the service account: take it back for Administrators alone
+    # (never /reset, which would inherit the parent's ACL and open it to users if deletion then fails).
+    & (Join-Path $windows 'System32	akeown.exe') /F $Path /R /A /D Y | Out-Null
+    & (Join-Path $windows 'System32\icacls.exe') $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' /T /C /Q | Out-Null
     Remove-Item -LiteralPath $Path -Recurse -Force
     Write-Host "Removed $Path."
 }
 
-Remove-OwnedTree $dataDir
+# Keys first (DPAPI master keys and the badge key live in the service profile): if anything below
+# fails, what is left of the data folder is ciphertext nobody can unwrap.
 $userProfile = if ($serviceSid -match '^S-1-5-80-') { Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $serviceSid } } else { $null }
 if ($userProfile) {
     $userProfile | Remove-CimInstance
     Write-Host "Removed the service profile of NT SERVICE\$serviceName."
 }
 Remove-OwnedTree $profileDir
+Remove-OwnedTree $dataDir
 Write-Host 'All Leaf Vault secrets and the badge signing key are deleted.'
