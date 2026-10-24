@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The control-pipe protocol and a small client. Referenced by Leaf Vault itself (one
+       definition of the wire format) and, from M1 on, by RedLeaf and RedCompute.
+       No package dependencies on purpose. -->
+  <PropertyGroup>
+    <RootNamespace>Leaf.Vault.Client</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>
