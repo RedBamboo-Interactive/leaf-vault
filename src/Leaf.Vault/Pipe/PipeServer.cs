@@ -51,9 +51,11 @@ internal sealed class PipeServer(VaultOptions options, VaultOperations operation
             }
             catch (IOException)
             {
-                // The client vanished between connect and accept; replace the instance.
+                // The client vanished between connect and accept. Create the replacement before
+                // releasing this one, so the pipe never drops to zero instances.
+                var replacement = await CreateInstanceAsync(security, stop);
                 Release(listening);
-                listening = await CreateInstanceAsync(security, stop);
+                listening = replacement;
                 continue;
             }
             var connected = listening;
