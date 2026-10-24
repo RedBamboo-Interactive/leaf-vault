@@ -5,8 +5,8 @@ Programs that need a secret ask the vault to *use* it instead: the egress proxy 
 an outgoing request, and the signer signs a badge. It runs as its own virtual service account,
 `NT SERVICE\LeafVault`, and its files and memory are closed to the owner's Windows user.
 
-Status: Phase 2 step M0. The vault exists and can be installed. Nothing in RedLeaf or RedCompute
-uses it yet (M1 and later).
+Status: Phase 2 step M0b. The vault exists and ships to every Leaf user through the Nightly; RedLeaf
+installs it with one UAC prompt. Nothing in RedLeaf or RedCompute uses it yet (M1 and later).
 
 ## Threat model, briefly
 
@@ -124,7 +124,58 @@ after:  POST http://127.0.0.1:18810/s/elevenlabs/v1/text-to-speech/…   (no key
   software CNG key under the service account. `health` reports which one is in use. An existing
   key is always reused, and a new one is created only when none exists.
 
-## Install and uninstall (owner, elevated)
+## Packaged install and update (everyone, through RedLeaf)
+
+The release is one file, `leaf-vault-<version>-win-x64.exe`: a self-contained, single-file
+`Leaf.Vault.exe` that is both the service and its own installer. It is built by
+`scripts/release/build-release.ps1` (locked restore, tests, deterministic publish) from Release
+Manager's leaf-vault recipe and published to the Nightly like every other component. The release
+signing covers it the usual way: its SHA-256 and size are bound in a signed feed record. Nothing is
+built, and nothing needs the .NET SDK, git or the network, on the user's machine.
+
+RedLeaf offers the install (Settings and first-run setup) and, later, each newer version. When the
+user accepts:
+
+1. RedLeaf verifies the signed record for `leaf-vault` on its channel and downloads the artifact,
+   checking its size and SHA-256. Nothing elevated starts before that.
+2. Windows asks **once** (UAC). The program it asks for is Windows PowerShell from System32
+   (`-NoProfile -NonInteractive`, a fixed script): nothing elevated is started from a
+   user-writable folder. That script only uses .NET calls, so no user module or profile loads.
+3. The elevated script copies the download into a new folder under
+   `C:\Program Files\Leaf Vault Setup\` (administrators only), checks the SHA-256 of that copy
+   again, and runs it as `Leaf.Vault.exe setup install --owner-sid <SID>` with a whitelisted
+   environment. Then it deletes the folder.
+4. `setup install` refuses to run unless it is elevated, its own file and every folder above it
+   can be changed by administrators only, and the owner SID is the account signed in to that
+   Windows session. It then does what `install.ps1` does after its build: program files,
+   `leaf-vault.json`, the service, the data folder created already locked, start, and `/health`.
+   It also checks that `/health` reports the new version.
+
+An **update** is the same command over an existing install. It keeps the owner, the port and every
+secret, and refuses if the vault belongs to another Windows account. The previous program folder is
+moved aside first and put back if the new version does not answer `/health`. A data folder that
+already exists is used only if its permissions are exactly what an installer creates (so a
+reinstall after `uninstall.ps1` without `-RemoveData` keeps the secrets); anything else is refused.
+
+`setup install` exit codes (RedLeaf shows each in plain words; the numbers never change meaning):
+
+| Code | Meaning |
+|---|---|
+| 0 | Installed and healthy |
+| 1 | Unexpected failure (see the Application event log, source `Leaf Vault`) |
+| 10 | Not elevated |
+| 11 | Invalid command line |
+| 12 | Not running from an administrators-only folder |
+| 13 | The owner SID is not the account signed in to this session |
+| 14 | This vault belongs to another Windows account |
+| 15 | A `LeafVault` service exists with another program |
+| 16 | The data folder exists with other permissions |
+| 17 | The new version did not start; the previous one is back |
+| 18 | Leaf Vault did not start |
+| 20 | (bootstrap) the staged copy's SHA-256 did not match the signed record |
+| 21 | (bootstrap) the download could not be staged |
+
+## Developer install and uninstall from source (owner, elevated)
 
 Prerequisites: the .NET 9 SDK installed machine-wide under `C:\Program Files\dotnet` (see
 `global.json`). Git is not needed. The commit you install must be **pushed** to GitHub, because the
@@ -194,6 +245,7 @@ Layout:
   - `Signing/`: key selection, ES256 signer.
   - `Pipe/`: pipe server, native pipe creation, operation table.
   - `Proxy/`: egress proxy, scrubber.
+  - `Setup/`: the packaged installer (`setup install`).
   - `VaultApp.cs`, `Program.cs`.
 - `tests/Leaf.Vault.Tests/`
-- `scripts/`
+- `scripts/`: `install.ps1`, `uninstall.ps1` (developer path), `release/build-release.ps1`.

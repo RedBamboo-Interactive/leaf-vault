@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- The release artifact is a self-contained single-file win-x64 exe (scripts/release/build-release.ps1).
+         Declared for every restore, so one set of lock files serves that publish, install.ps1 and the tests. -->
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <Version>0.1.0</Version>
     <Authors>RedBamboo Interactive</Authors>
   </PropertyGroup>

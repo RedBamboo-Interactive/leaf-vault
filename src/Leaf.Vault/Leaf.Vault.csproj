@@ -27,4 +27,12 @@
     <InternalsVisibleTo Include="Leaf.Vault.Tests" />
   </ItemGroup>
 
+  <!-- The vault never runs under IIS: keep the ASP.NET Core IIS module out of the published
+       output, so the release is the single Leaf.Vault.exe and nothing beside it. -->
+  <Target Name="DropIisModuleFromPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)' == 'aspnetcorev2_inprocess.dll'" />
+    </ItemGroup>
+  </Target>
+
 </Project>

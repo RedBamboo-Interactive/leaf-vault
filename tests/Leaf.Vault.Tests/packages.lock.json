@@ -2,6 +2,12 @@
   "version": 1,
   "dependencies": {
     "net9.0-windows7.0": {
+      "Microsoft.NET.ILLink.Tasks": {
+        "type": "Direct",
+        "requested": "[9.0.7, )",
+        "resolved": "9.0.7",
+        "contentHash": "SZ1brSGoLnhLbE8QUZrtN6YwzN2gDT1wbx9qDBEfFFJcstiDTjJ6ygNuTPBV/K7SjGfx2YNbcJi5+ygbPOZpDg=="
+      },
       "Microsoft.NET.Test.Sdk": {
         "type": "Direct",
         "requested": "[17.13.0, )",
@@ -432,6 +438,21 @@
       },
       "leaf.vault.client": {
         "type": "Project"
+      }
+    },
+    "net9.0-windows7.0/win-x64": {
+      "System.Diagnostics.EventLog": {
+        "type": "Transitive",
+        "resolved": "9.0.21",
+        "contentHash": "Z7gAKa1nD2O92t8mI+/74HDAxRIFHh9qgsNqGfPhblGy1Xp9qeU7ToMwZL2BQg0FA3Q92djSW5gU1Mi7hTJVlw=="
+      },
+      "System.ServiceProcess.ServiceController": {
+        "type": "Transitive",
+        "resolved": "9.0.21",
+        "contentHash": "RjiRdRtPhJBhMBrCslytDzH1/wOEsQY8RTgXcYTEYExfuaVfVkV+IO4JliKSeC+RcLSEtrU+ZVzR1qCQkQapqw==",
+        "dependencies": {
+          "System.Diagnostics.EventLog": "9.0.21"
+        }
       }
     }
   }
