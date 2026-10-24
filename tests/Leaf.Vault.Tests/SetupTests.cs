@@ -108,6 +108,27 @@ public sealed class SetupTests
         Assert.Empty(machine.Actions);
     }
 
+    [Theory]
+    [InlineData("Leaf Vault")]   // ProgramData unexpanded in a stripped environment (seen in Sandbox acceptance)
+    [InlineData("")]
+    [InlineData(@"C:\")]
+    public async Task A_folder_Windows_did_not_resolve_stops_setup_before_any_change(string dataDirectory)
+    {
+        var machine = new FakeMachine();
+        var error = await Assert.ThrowsAsync<SetupException>(() =>
+            new Installer(machine, Paths with { DataDirectory = dataDirectory }).RunAsync(Args()));
+        Assert.Equal(SetupExit.Unexpected, error.Code);
+        Assert.Empty(machine.Actions);
+    }
+
+    [Fact]
+    public void This_machines_folders_are_absolute()
+    {
+        var paths = SetupPaths.ForThisMachine();
+        paths.Validate();
+        Assert.EndsWith(@"\Leaf Vault", paths.DataDirectory, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Running_from_a_folder_the_user_can_change_is_refused()
     {

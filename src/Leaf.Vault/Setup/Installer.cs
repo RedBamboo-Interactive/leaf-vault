@@ -15,6 +15,19 @@ public sealed record SetupPaths(string InstallDirectory, string DataDirectory, s
     public string Exe => Path.Combine(InstallDirectory, ExeName);
     public string Config => Path.Combine(InstallDirectory, ConfigName);
 
+    /// <summary>
+    /// Every folder must be absolute. Windows expands some known folders (ProgramData) through the
+    /// environment, so a stripped environment can yield an empty path; setup then stops before
+    /// touching anything rather than creating "Leaf Vault" relative to its working folder.
+    /// </summary>
+    public void Validate()
+    {
+        foreach (var path in new[] { InstallDirectory, DataDirectory, StagingRoot })
+            if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) || Path.GetPathRoot(path) == path)
+                throw new SetupException(SetupExit.Unexpected,
+                    $"Windows did not report the Program Files and ProgramData folders (got '{path}'); nothing was changed.");
+    }
+
     public static SetupPaths ForThisMachine()
     {
         var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
@@ -71,6 +84,7 @@ public sealed class Installer(ISetupSystem system, SetupPaths paths)
 
     public async Task<HealthResult> RunAsync(SetupArguments args)
     {
+        paths.Validate();
         if (!system.IsElevated)
             throw new SetupException(SetupExit.NotElevated, "Leaf Vault setup needs administrator approval.");
         system.AssertAdminOnlyWritable(system.SelfPath);
